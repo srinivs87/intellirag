@@ -2,11 +2,13 @@
 Query API — handles RAG queries with session memory.
 """
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 
 from app.schemas.query import QueryRequest, QueryResponse
 from app.services.rag.pipeline import retrieve_and_generate, stream_retrieve_and_generate
+from app.services.rag.generation import generate_answer
 from app.services.memory import get_or_create_session, save_message, get_history, get_full_history, clear_session
 from app.services.analytics import log_query
 
@@ -93,3 +95,28 @@ async def get_conversation_history(session_id: str):
 async def delete_session(session_id: str):
     await clear_session(session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+class SuggestionsRequest(BaseModel):
+    prompt: str
+
+
+@router.post("/suggestions")
+async def get_suggestions(req: SuggestionsRequest):
+    """Generate follow-up question suggestions using Groq."""
+    try:
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant. Return ONLY a valid JSON array of 3 short strings. No explanation, no markdown, just the array."},
+            {"role": "user", "content": req.prompt}
+        ]
+        answer = await generate_answer(messages)
+        # Clean and parse
+        clean = answer.strip().replace('```json', '').replace('```', '').strip()
+        import json
+        parsed = json.loads(clean)
+        if isinstance(parsed, list):
+            return {"suggestions": parsed[:3]}
+        return {"suggestions": []}
+    except Exception as e:
+        print(f"[Suggestions] Error: {e}")
+        return {"suggestions": []}
