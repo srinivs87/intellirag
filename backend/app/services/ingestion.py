@@ -1,5 +1,9 @@
+"""
+Ingestion Service — parses, chunks, embeds and stores documents.
+Also registers every document in the document_registry for Layer 3 retrieval.
+"""
 import uuid
-import hashlib
+import logging
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -9,7 +13,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import settings
 from app.core.vector_store import get_qdrant, ensure_collection
 from app.services.embedding import get_embeddings
-from app.services.storage import upload_to_minio, download_from_minio
+from app.services.storage import upload_to_minio
+
+log = logging.getLogger("intellirag.ingestion")
 
 
 async def ingest_document(
@@ -28,6 +34,7 @@ async def ingest_document(
     3. Split into chunks
     4. Embed each chunk
     5. Store in Qdrant with metadata
+    6. Register in document_registry (Layer 3)
     """
 
     # 1. Store raw file in MinIO
@@ -39,10 +46,10 @@ async def ingest_document(
     if not text.strip():
         raise ValueError(f"Could not extract text from {filename}")
 
-    # Prepend file date to text so embeddings encode the date
-    if extra_metadata and extra_metadata.get('file_date'):
-        fd = extra_metadata['file_date'][:10]
-        text = "[Document Date: " + fd + "]\n\n" + text
+    # Prepend file date so embeddings encode the date context
+    if extra_metadata and extra_metadata.get("file_date"):
+        fd = extra_metadata["file_date"][:10]
+        text = f"[Document Date: {fd}]\n\n{text}"
 
     # 3. Split into chunks
     splitter = RecursiveCharacterTextSplitter(
@@ -56,42 +63,56 @@ async def ingest_document(
     embeddings = await get_embeddings(chunks)
 
     # 5. Upsert into Qdrant
-    collection_name = collection_name or await ensure_collection(tenant_slug)
-    points = []
-    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        point_id = str(uuid.uuid4())
-        points.append(
-            PointStruct(
-                id=point_id,
-                vector=embedding,
-                payload={
-                    "document_id": document_id,
-                    "tenant_slug": tenant_slug,
-                    "filename": filename,
-                    "chunk_index": i,
-                    "chunk_total": len(chunks),
-                    "text": chunk,
-                    "uploaded_by": uploaded_by,
-                    **(extra_metadata or {}),
-                },
-            )
+    target_collection = collection_name or await ensure_collection(tenant_slug)
+    points = [
+        PointStruct(
+            id=str(uuid.uuid4()),
+            vector=embedding,
+            payload={
+                "document_id": document_id,
+                "tenant_slug": tenant_slug,
+                "filename": filename,
+                "chunk_index": i,
+                "chunk_total": len(chunks),
+                "text": chunk,
+                "uploaded_by": uploaded_by,
+                **(extra_metadata or {}),
+            },
         )
-
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+    ]
     client = get_qdrant()
-    await client.upsert(collection_name=collection_name, points=points)
+    await client.upsert(collection_name=target_collection, points=points)
+
+    # 6. Register in document_registry (Layer 3)
+    try:
+        from app.services.registry import upsert_registry_entry
+        file_ext = Path(filename).suffix.lower().lstrip(".")
+        file_path = (extra_metadata or {}).get("file_path", filename)
+        await upsert_registry_entry(
+            document_id=document_id,
+            filename=filename,
+            collection=target_collection,
+            file_type=file_ext,
+            file_path=file_path,
+            chunk_count=len(chunks),
+            text_sample=text[:3000],
+        )
+    except Exception as e:
+        # Registry failure should never block ingestion
+        log.warning(f"[Ingestion] Registry update failed for {filename}: {e}")
 
     return {
         "document_id": document_id,
         "filename": filename,
         "chunks_created": len(chunks),
-        "collection": collection_name,
+        "collection": target_collection,
     }
 
 
 async def parse_document(file_bytes: bytes, filename: str) -> str:
     """Parse text from various file types."""
     ext = Path(filename).suffix.lower()
-
     if ext == ".pdf":
         return await _parse_pdf(file_bytes)
     elif ext in (".docx", ".doc"):
@@ -100,7 +121,7 @@ async def parse_document(file_bytes: bytes, filename: str) -> str:
         return await _parse_xlsx(file_bytes)
     elif ext in (".pptx", ".ppt"):
         return await _parse_pptx(file_bytes)
-    elif ext in (".txt", ".md"):
+    elif ext in (".txt", ".md", ".csv"):
         return file_bytes.decode("utf-8", errors="ignore")
     else:
         return file_bytes.decode("utf-8", errors="ignore")
@@ -112,9 +133,9 @@ async def _parse_pdf(file_bytes: bytes) -> str:
     reader = PdfReader(io.BytesIO(file_bytes))
     pages = []
     for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            pages.append(text)
+        t = page.extract_text()
+        if t:
+            pages.append(t)
     return "\n\n".join(pages)
 
 
@@ -126,9 +147,8 @@ async def _parse_docx(file_bytes: bytes) -> str:
     return "\n\n".join(paragraphs)
 
 
-
 async def _parse_xlsx(file_bytes: bytes) -> str:
-    """Parse Excel files into readable text — each sheet becomes a section."""
+    """Parse Excel — each sheet becomes a named section."""
     import io
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
@@ -137,7 +157,6 @@ async def _parse_xlsx(file_bytes: bytes) -> str:
         ws = wb[sheet_name]
         rows = []
         for row in ws.iter_rows(values_only=True):
-            # Skip completely empty rows
             values = [str(v).strip() if v is not None else "" for v in row]
             if any(v for v in values):
                 rows.append("  |  ".join(values))
@@ -147,7 +166,7 @@ async def _parse_xlsx(file_bytes: bytes) -> str:
 
 
 async def _parse_pptx(file_bytes: bytes) -> str:
-    """Parse PowerPoint files — extract text from all slides."""
+    """Parse PowerPoint — each slide becomes a named section."""
     import io
     from pptx import Presentation
     prs = Presentation(io.BytesIO(file_bytes))
@@ -163,7 +182,7 @@ async def _parse_pptx(file_bytes: bytes) -> str:
 
 
 async def delete_document_chunks(document_id: str, tenant_slug: str):
-    """Remove all Qdrant points for a document."""
+    """Remove all Qdrant points and registry entry for a document."""
     from qdrant_client.models import Filter, FieldCondition, MatchValue
     client = get_qdrant()
     collection_name = f"intellirag_{tenant_slug}"
@@ -173,3 +192,9 @@ async def delete_document_chunks(document_id: str, tenant_slug: str):
             must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
         ),
     )
+    # Also remove from registry
+    try:
+        from app.services.registry import remove_registry_entry
+        await remove_registry_entry(document_id, collection_name)
+    except Exception as e:
+        log.warning(f"[Ingestion] Registry removal failed: {e}")

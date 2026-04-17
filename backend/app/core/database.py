@@ -18,7 +18,7 @@ async def init_db():
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
-                # Conversation memory tables
+                # ── Conversation memory ────────────────────────────────────────
                 await conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS conversations (
                         id          UUID PRIMARY KEY,
@@ -39,7 +39,7 @@ async def init_db():
                     )
                 """))
 
-                # Query logs for analytics
+                # ── Query analytics ────────────────────────────────────────────
                 await conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS query_logs (
                         id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -60,25 +60,54 @@ async def init_db():
                     )
                 """))
 
-                # Indexes
+                # ── Local FS sync tracking ─────────────────────────────────────
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS localfs_synced_files (
+                        id          TEXT PRIMARY KEY,
+                        file_path   TEXT UNIQUE NOT NULL,
+                        filename    TEXT NOT NULL,
+                        document_id TEXT NOT NULL,
+                        tenant_slug TEXT NOT NULL DEFAULT 'general',
+                        file_date   TEXT,
+                        hostname    TEXT,
+                        synced_at   TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+                # ── Document Registry (Layer 3) ────────────────────────────────
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS document_registry (
+                        id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                        filename    TEXT NOT NULL,
+                        collection  TEXT NOT NULL,
+                        document_id TEXT NOT NULL,
+                        file_type   TEXT,
+                        file_path   TEXT,
+                        summary     TEXT,
+                        topics      TEXT[],
+                        entities    TEXT[],
+                        chunk_count INT DEFAULT 0,
+                        synced_at   TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE (document_id, collection)
+                    )
+                """))
+
+                # ── Indexes ────────────────────────────────────────────────────
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_conversations_tenant ON conversations(tenant_slug)"))
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_conversations_expires ON conversations(expires_at)"))
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at DESC)"))
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_query_logs_tenant_slug ON query_logs(tenant_slug)"))
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_query_logs_created ON query_logs(created_at DESC)"))
-                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_query_logs_confidence ON query_logs(confidence_score)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_registry_filename ON document_registry(filename)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_registry_collection ON document_registry(collection)"))
 
-            # Reset any connectors stuck in 'syncing' state from previous crash
-            try:
-                await conn.execute(text("UPDATE gdrive_connectors SET status='idle' WHERE status='syncing'"))
-                await conn.execute(text("UPDATE m365_connectors SET status='idle' WHERE status='syncing'"))
-            except Exception:
-                pass
             print("[DB] Connected and all tables ready")
             return
+
         except Exception as e:
             print(f"[DB] Attempt {attempt+1}/10 failed: {e}")
             await asyncio.sleep(3)
+
     print("[DB] Warning: Could not connect, continuing anyway")
 
 

@@ -16,9 +16,18 @@ def _get_groq_client() -> Groq:
 
 async def generate_answer(messages: List[Dict]) -> str:
     """Route to Groq or Ollama based on LLM_PROVIDER setting."""
-    if settings.LLM_PROVIDER == "groq" and settings.GROQ_API_KEY:
-        return await _generate_groq(messages)
-    return await _generate_ollama(messages)
+    try:
+        if settings.LLM_PROVIDER == "groq" and settings.GROQ_API_KEY:
+            return await _generate_groq(messages)
+        return await _generate_ollama(messages)
+    except Exception as e:
+        err_str = str(e)
+        if "429" in err_str or "rate_limit" in err_str.lower():
+            import re
+            wait = re.search(r"try again in ([\w\s\.]+)\.", err_str)
+            wait_msg = wait.group(1) if wait else "a few minutes"
+            return f"⚠️ The AI service is temporarily rate limited. Please try again in {wait_msg}. This is a Groq API daily token limit — it resets every 24 hours."
+        raise
 
 
 async def _generate_groq(messages: List[Dict]) -> str:
