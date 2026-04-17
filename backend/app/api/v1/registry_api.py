@@ -103,8 +103,16 @@ async def rebuild_registry(req: RebuildRequest):
             if doc_id in existing_doc_ids:
                 log.info(f"[Registry] Skipping {doc['filename']} — already registered")
                 continue
-            # Combine first few chunks as text sample
-            text_sample = "\n\n".join(doc["chunks"][:5])
+            # Use chunks from across the document for better coverage
+            # Take first 2 + middle 2 + last 2 chunks for representative sample
+            all_chunks = doc["chunks"]
+            n = len(all_chunks)
+            if n <= 6:
+                sample_chunks = all_chunks
+            else:
+                mid = n // 2
+                sample_chunks = all_chunks[:2] + all_chunks[mid:mid+2] + all_chunks[-2:]
+            text_sample = "\n\n".join(sample_chunks)
             file_ext = doc["filename"].rsplit(".", 1)[-1].lower() if "." in doc["filename"] else ""
             await upsert_registry_entry(
                 document_id=doc_id,
@@ -132,3 +140,30 @@ async def delete_registry_entry(document_id: str, collection: str = "intellirag_
         return {"status": "deleted", "document_id": document_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateTopicsRequest(BaseModel):
+    document_id: str
+    collection: str
+    extra_topics: list = []
+    extra_entities: list = []
+
+@router.post("/api/registry/update-topics")
+async def update_registry_topics(req: UpdateTopicsRequest):
+    """Manually add topics/entities to a registry entry."""
+    from app.core.database import AsyncSessionLocal
+    from sqlalchemy import text
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("""
+            UPDATE document_registry
+            SET topics   = array(SELECT DISTINCT unnest(topics || :extra_topics)),
+                entities = array(SELECT DISTINCT unnest(entities || :extra_entities))
+            WHERE document_id = :doc_id AND collection = :col
+        """), {
+            "extra_topics": req.extra_topics,
+            "extra_entities": req.extra_entities,
+            "doc_id": req.document_id,
+            "col": req.collection,
+        })
+        await db.commit()
+    return {"status": "ok", "document_id": req.document_id}

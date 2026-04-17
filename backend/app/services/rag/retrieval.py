@@ -70,8 +70,13 @@ SCENARIO_TERMS = {
     "scenario": ["FY2026 SCENARIO", "scenario analysis"],
     "strategic": ["Strategic Initiatives", "strategic initiatives"],
     "initiative": ["Strategic Initiatives", "IntelliRAG Platform", "MediAIConnect"],
-    "client": ["Client Analytics", "Client Revenue", "highest revenue"],
+    "client": ["Client Analytics", "Client Revenue", "YoY Growth", "Entry:"],
+    "growth": ["YoY Growth", "highest revenue", "Client Analytics"],
+    "highest": ["YoY Growth", "Client Analytics", "highest revenue"],
     "headcount": ["Headcount", "headcount"],
+    "nurseconnect": ["NurseConnect", "nurseconnect"],
+    "medcore": ["MedCore", "medcore"],
+    "startupai": ["StartupAI", "startupai"],
 }
 
 JUNK_PATTERNS = [
@@ -122,7 +127,7 @@ def boost_filename_matches(chunks: List[Dict], keywords: List[str]) -> List[Dict
 
 # ── Layer 2 — Source Diversity ────────────────────────────────────────────────
 
-def apply_source_diversity(chunks: List[Dict], top_k: int, max_per_doc: int = 2) -> List[Dict]:
+def apply_source_diversity(chunks: List[Dict], top_k: int, max_per_doc: int = 3) -> List[Dict]:
     """
     Layer 2: Ensure no single document dominates results.
     Caps chunks per document to max_per_doc using filename as key.
