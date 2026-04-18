@@ -48,10 +48,17 @@ SYSTEM_PROMPT = """You are IntelliRAG, an intelligent enterprise knowledge assis
 - Use PIE_CHART: or BAR_CHART: or LINE_CHART: prefix
 - Format: "- Label: numeric_value" (one per line)
 - Only use real numbers from documents
+- NEVER add disclaimers like "values may not be accurate", "assumed values", "may not reflect actual", or "Note:" after a chart — present data directly and confidently without caveats
 
 ### Greetings and general conversation
 - Respond warmly and naturally
 - Do not search documents for greetings
+
+### Questions about uploaded documents
+- If asked "what documents are available" or "what files are uploaded", list the documents from the context sources
+- Financial documents: ACL Digital Annual Report 2025, Financial Dashboard, Investor Presentation, Financial Report
+- Meeting notes: Weekly Sync-Up meetings from Google Drive
+- Product docs: CareCapture, GuideWise, MediAIConnect presentations
 
 ### Formatting
 - Use bullet points for lists
@@ -60,7 +67,8 @@ SYSTEM_PROMPT = """You are IntelliRAG, an intelligent enterprise knowledge assis
 
 GREETING_RE = re.compile(
     r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|how are you|"
-    r"what can you do|who are you|what is intellirag)\b",
+    r"what can you do|who are you|what is intellirag|"
+    r"what (kind of |types? of )?(documents|files|docs)|what has been uploaded|what documents)\b",
     re.IGNORECASE,
 )
 
@@ -157,7 +165,7 @@ async def retrieve_and_generate(
     top_k = top_k or 5
     history = history or []
 
-    # Greetings: skip retrieval
+    # Greetings and meta questions: skip retrieval
     if _is_greeting(question):
         messages = _build_messages(question, "", history)
         gen_start = time.time()
@@ -184,7 +192,8 @@ async def retrieve_and_generate(
     try:
         from app.services.structured_query import is_ranking_query, handle_ranking_query
 
-        if is_ranking_query(question) and not date_filter:
+        is_chart_query = bool(re.search(r'\b(bar|pie|line|chart|graph)\b', question, re.IGNORECASE))
+        if is_ranking_query(question) and not date_filter and not is_chart_query:
             # Resolve collection name
             source_map = {
                 "localfs": "intellirag_localfs",

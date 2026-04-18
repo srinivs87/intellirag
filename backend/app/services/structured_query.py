@@ -116,7 +116,7 @@ async def handle_ranking_query(
     elif any(w in q for w in ['department', 'headcount', 'employee', 'hr']):
         sheet_hint = 'Headcount'
     elif any(w in q for w in ['quarter', 'quarterly', 'q1', 'q2', 'q3', 'q4']):
-        sheet_hint = 'Quarterly'
+        sheet_hint = 'Quarterly Deep Dive'
 
     if not sheet_hint:
         return None
