@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # ── Security ─────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-32chars!!"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days for enterprise demo
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     CORS_ORIGINS: str = "*"

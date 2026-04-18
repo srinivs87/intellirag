@@ -25,7 +25,7 @@ async function fetchSuggestions(question: string, answer: string): Promise<strin
   } catch { return [] }
 }
 
-export function useChat(tenant: string, userName?: string) {
+export function useChat(tenant: string, userName?: string, userId?: string, userRole?: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -68,6 +68,7 @@ export function useChat(tenant: string, userName?: string) {
         question,
         session_id: sessionId || undefined,
         sources: sources.length > 0 ? sources : undefined,
+        user_context: userId ? { user_id: userId, role: userRole || 'user' } : undefined,
       })
       if (res.session_id) {
         setSessionId(res.session_id)

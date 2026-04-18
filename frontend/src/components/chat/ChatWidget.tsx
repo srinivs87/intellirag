@@ -7,6 +7,7 @@ import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { SourcePills } from './SourcePills'
 import { FollowUpSuggestions } from './FollowUpSuggestions'
+import { SuggestedQuestions } from './SuggestedQuestions'
 import { NAVY } from '@/lib/constants'
 
 interface ChatWidgetProps {
@@ -31,7 +32,10 @@ export function ChatWidget({ tenant = 'general', user, allowedSources }: ChatWid
     suggestions, setSuggestions,
     sendMessage, sendMessageWithAttachment,
     startNewConversation, sessionId,
-  } = useChat(tenant, user.name)
+  } = useChat(tenant, user.name, user.email || user.id, user.role)
+
+  // Show suggested questions only when it's a fresh conversation (just the welcome message)
+  const showSuggested = !restoring && !loading && messages.length <= 1
 
   async function handleSend() {
     const q = input.trim()
@@ -52,11 +56,16 @@ export function ChatWidget({ tenant = 'general', user, allowedSources }: ChatWid
     setSuggestions([])
   }
 
+  function handleSuggestedQuestionSelect(q: string) {
+    // Directly send the suggested question
+    sendMessage(q, [activeSource])
+  }
+
   return (
     <div className="flex flex-col h-full w-full bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
       <style>{BOUNCE_CSS}</style>
 
-      {/* ── Source bar — light, clean ── */}
+      {/* ── Source bar ── */}
       <div className="bg-slate-50 border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between px-4 py-2.5 gap-3">
           <SourcePills
@@ -80,53 +89,59 @@ export function ChatWidget({ tenant = 'general', user, allowedSources }: ChatWid
         </div>
       </div>
 
-      {/* ── Messages — internal scroll only ── */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 flex flex-col gap-3">
+      {/* ── Messages or Suggested Questions ── */}
+      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
         {restoring ? (
           <div className="flex justify-center items-center h-full text-slate-400 text-sm">
             Restoring conversation...
           </div>
+        ) : showSuggested ? (
+          /* Fresh conversation — show suggested questions */
+          <SuggestedQuestions onSelect={handleSuggestedQuestionSelect} />
         ) : (
-          messages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              userInitial={(user.name?.[0] || 'U').toUpperCase()}
-            />
-          ))
-        )}
+          /* Active conversation — show messages */
+          <div className="px-4 py-4 flex flex-col gap-3">
+            {messages.map((msg) => (
+              <ChatMessage
+                key={msg.id}
+                message={msg}
+                userInitial={(user.name?.[0] || 'U').toUpperCase()}
+              />
+            ))}
 
-        {loading && (
-          <div className="flex gap-2 items-end self-start">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-              style={{ background: NAVY }}
-            >
-              IR
-            </div>
-            <div className="bg-slate-100 px-3 py-2.5 rounded-xl rounded-bl-sm flex gap-1 items-center">
-              {[0, 150, 300].map((d) => (
-                <span
-                  key={d}
-                  className="inline-block rounded-full"
-                  style={{
-                    width: 6, height: 6,
-                    background: '#94A3B8',
-                    animation: 'bounce 1.2s infinite',
-                    animationDelay: `${d}ms`,
-                  }}
-                />
-              ))}
-            </div>
+            {loading && (
+              <div className="flex gap-2 items-end self-start">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                  style={{ background: NAVY }}
+                >
+                  IR
+                </div>
+                <div className="bg-slate-100 px-3 py-2.5 rounded-xl rounded-bl-sm flex gap-1 items-center">
+                  {[0, 150, 300].map((d) => (
+                    <span
+                      key={d}
+                      className="inline-block rounded-full"
+                      style={{
+                        width: 6, height: 6,
+                        background: '#94A3B8',
+                        animation: 'bounce 1.2s infinite',
+                        animationDelay: `${d}ms`,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
       {/* ── Follow-up suggestions ── */}
       <FollowUpSuggestions suggestions={suggestions} onSelect={handleSuggestionSelect} />
 
-      {/* ── Input with attachment support ── */}
+      {/* ── Input ── */}
       <ChatInput
         value={input}
         onChange={setInput}

@@ -4,6 +4,7 @@ API v1 Router — aggregates all versioned endpoints.
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    audit_api,
     autosync_api,
     attachment_query,
     registry_api,
@@ -33,3 +34,5 @@ router.include_router(attachment_query.router)
 router.include_router(registry_api.router,                                    tags=["Registry"])
 
 router.include_router(autosync_api.router)
+
+router.include_router(audit_api.router)
