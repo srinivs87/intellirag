@@ -65,15 +65,17 @@ FINANCIAL_FILENAMES = {
 # Known scenario/financial terms for exact keyword fallback
 SCENARIO_TERMS = {
     "bear": ["Bear Case", "bear case"],
-    "bull": ["Bull Case", "bull case"],
+    "bull": ["Bull Case", "bull case", "FY2026 SCENARIO", "36%+ Growth"],
     "base case": ["Base Case", "base case"],
-    "scenario": ["FY2026 SCENARIO", "scenario analysis"],
+    "scenario": ["FY2026 SCENARIO", "scenario analysis", "Bear Case", "Bull Case", "Base Case"],
     "strategic": ["Strategic Initiatives", "strategic initiatives"],
     "initiative": ["Strategic Initiatives", "IntelliRAG Platform", "MediAIConnect"],
     "client": ["Client Analytics", "Client Revenue", "YoY Growth", "Entry:"],
     "growth": ["YoY Growth", "highest revenue", "Client Analytics"],
     "highest": ["YoY Growth", "Client Analytics", "highest revenue"],
     "headcount": ["Headcount", "headcount"],
+    "forecast": ["FY2026 SCENARIO", "Bear Case", "Bull Case", "Base Case", "3-Year Financial Forecast"],
+    "3-year": ["3-Year Financial Forecast", "FY2026 SCENARIO", "Bear Case"],
     "nurseconnect": ["NurseConnect", "nurseconnect"],
     "medcore": ["MedCore", "medcore"],
     "startupai": ["StartupAI", "startupai"],
@@ -187,6 +189,13 @@ async def keyword_fallback_search(
         if keyword in q_lower:
             phrases.extend(terms)
 
+    # For scenario queries (bear/bull/base/forecast), always include
+    # "FY2026 SCENARIO" which is on the slide containing ALL scenarios
+    scenario_keywords = ["bear", "bull", "base case", "scenario", "forecast", "3-year", "guidance"]
+    if any(kw in q_lower for kw in scenario_keywords):
+        if "FY2026 SCENARIO" not in phrases:
+            phrases.insert(0, "FY2026 SCENARIO ANALYSIS")
+
     # Add adjacent word bigrams
     for i in range(len(q_words) - 1):
         phrases.append(f"{q_words[i]} {q_words[i+1]}")
@@ -214,24 +223,26 @@ async def keyword_fallback_search(
             hits = await client.search(
                 collection_name=collection_name,
                 query_vector=query_embedding,
-                limit=3,
+                limit=5,
                 with_payload=True,
                 query_filter=kw_filter,
             )
             for r in hits:
                 rid = f"{r.payload.get('filename','')}_{r.payload.get('chunk_index',0)}"
                 if rid not in existing_ids:
-                    new_chunks.append({
+                    chunk_data = {
                         "text": r.payload["text"],
                         "filename": r.payload.get("filename", "Unknown"),
                         "document_id": r.payload.get("document_id", ""),
                         "chunk_index": r.payload.get("chunk_index", 0),
-                        "score": r.score * 1.4,  # boost for exact match
+                        "score": r.score * 1.4,
                         "web_url": r.payload.get("web_url", ""),
                         "file_path": r.payload.get("file_path", ""),
                         "source_type": r.payload.get("source_type", ""),
-                    })
+                    }
+                    new_chunks.append(chunk_data)
                     existing_ids.add(rid)
+                    log.info(f"[Fallback] +{phrase}: {r.payload.get('filename','')} chunk {r.payload.get('chunk_index','')} score={r.score:.3f}")
         except Exception:
             pass
 
@@ -323,7 +334,13 @@ async def multi_source_retrieve(
         return deduped[:top_k]
 
     # Layer 2: source diversity
-    return apply_source_diversity(deduped, top_k)
+    # Pin high-score chunks (from keyword fallback, score > 0.8) before diversity
+    # These are exact keyword matches that must appear in results
+    pinned = [c for c in deduped if c.get("score", 0) > 0.8]
+    regular = [c for c in deduped if c.get("score", 0) <= 0.8]
+    diverse = apply_source_diversity(regular, max(top_k - len(pinned), 2))
+    result = (pinned + diverse)[:top_k]
+    return result
 
 
 async def hybrid_retrieve(
@@ -460,6 +477,9 @@ async def hybrid_retrieve(
         question, collection_name, query_embedding, existing_ids, client
     )
     if fallback:
+        # Give fallback chunks a strong boost so they survive diversity filtering
+        for chunk in fallback:
+            chunk["score"] = chunk["score"] * 2.0  # Strong boost for exact keyword matches
         results.extend(fallback)
         results.sort(key=lambda x: x["score"], reverse=True)
 

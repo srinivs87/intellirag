@@ -29,6 +29,14 @@ SYSTEM_PROMPT = """You are IntelliRAG, an intelligent enterprise knowledge assis
 - Show the metric value for each entry
 - State which document the data comes from
 
+### Scenario analysis answers (bear/bull/base case)
+- When asked about a specific scenario, find THAT scenario in the context
+- Bear Case = pessimistic/low scenario
+- Base Case = middle/expected scenario  
+- Bull Case = optimistic/high scenario
+- All three scenarios may appear in the same source chunk — read ALL of it
+- If context shows "Bull Case $32M+ 36%+ Growth" — that IS the bull case answer
+
 ### When context has partial info
 - Use what is available and clearly state what was found
 - Do NOT say "not found" if context contains related information
@@ -75,7 +83,7 @@ def _strip_chart_keywords(question: str) -> str:
 def _build_context(chunks: List[Dict]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, 1):
-        text = chunk["text"][:400]
+        text = chunk["text"][:500]
         date_str = f" | Date: {chunk['file_date'][:10]}" if chunk.get("file_date") else ""
         parts.append(f"[Source {i}: {chunk['filename']}{date_str}]\n{text}")
     return "\n\n---\n\n".join(parts)
@@ -101,7 +109,17 @@ def _build_messages(question: str, context: str, history: List[Dict]) -> List[Di
     for msg in (history or [])[-4:]:
         messages.append({"role": msg["role"], "content": msg["content"]})
     if context:
-        user_content = f"Context documents:\n\n{context}\n\n---\n\nQuestion: {question}"
+        # For scenario queries, add explicit instruction to read all scenarios
+        q_lower = question.lower()
+        if any(w in q_lower for w in ['bull', 'bear', 'base case', 'scenario']):
+            user_content = (
+                f"Context documents:\n\n{context}\n\n---\n\n"
+                f"IMPORTANT: The context above contains ALL THREE scenarios "
+                f"(Bear Case, Base Case, AND Bull Case). Read the ENTIRE context carefully.\n\n"
+                f"Question: {question}"
+            )
+        else:
+            user_content = f"Context documents:\n\n{context}\n\n---\n\nQuestion: {question}"
     else:
         user_content = f"Question: {question}"
     messages.append({"role": "user", "content": user_content})
@@ -136,7 +154,7 @@ async def retrieve_and_generate(
     sources: List[str] = None,
 ) -> Dict[str, Any]:
     start = time.time()
-    top_k = top_k or 8
+    top_k = top_k or 5
     history = history or []
 
     # Greetings: skip retrieval
@@ -245,7 +263,7 @@ async def stream_retrieve_and_generate(
     top_k: int = None,
     history: List[Dict] = None,
 ) -> AsyncGenerator[str, None]:
-    top_k = top_k or 8
+    top_k = top_k or 5
     history = history or []
     if _is_greeting(question):
         async for token in stream_answer(_build_messages(question, "", history)):

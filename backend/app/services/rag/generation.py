@@ -10,23 +10,44 @@ from groq import Groq
 from app.core.config import settings
 
 
+import os
+
 def _get_groq_client() -> Groq:
+    """Return Groq client, rotating to backup key if primary is rate limited."""
+    # Check if primary key is rate limited
+    if getattr(_get_groq_client, '_use_backup', False):
+        backup_key = settings.GROQ_API_KEY_2
+        if backup_key:
+            return Groq(api_key=backup_key)
     return Groq(api_key=settings.GROQ_API_KEY)
 
 
 async def generate_answer(messages: List[Dict]) -> str:
-    """Route to Groq or Ollama based on LLM_PROVIDER setting."""
+    """Route to Groq or Ollama. Auto-rotates to backup key on rate limit."""
     try:
         if settings.LLM_PROVIDER == "groq" and settings.GROQ_API_KEY:
+            _get_groq_client._use_backup = False
             return await _generate_groq(messages)
         return await _generate_ollama(messages)
     except Exception as e:
         err_str = str(e)
         if "429" in err_str or "rate_limit" in err_str.lower():
+            # Try backup key if available
+            backup_key = settings.GROQ_API_KEY_2
+            if backup_key and not getattr(_get_groq_client, "_use_backup", False):
+                import logging
+                logging.getLogger("intellirag").warning("[Generation] Primary key rate limited, switching to backup key")
+                _get_groq_client._use_backup = True
+                try:
+                    return await _generate_groq(messages)
+                except Exception as e2:
+                    if "429" in str(e2):
+                        return "⚠️ Both API keys are rate limited. Please try again in a few minutes."
+                    raise
             import re
-            wait = re.search(r"try again in ([\w\s\.]+)\.", err_str)
+            wait = re.search(r"try again in ([\d\w\s\.]+)\.", err_str)
             wait_msg = wait.group(1) if wait else "a few minutes"
-            return f"⚠️ The AI service is temporarily rate limited. Please try again in {wait_msg}. This is a Groq API daily token limit — it resets every 24 hours."
+            return f"⚠️ Rate limited. Please try again in {wait_msg}."
         raise
 
 
