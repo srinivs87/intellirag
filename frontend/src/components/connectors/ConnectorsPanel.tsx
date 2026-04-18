@@ -1,4 +1,5 @@
 'use client'
+import { AutoSyncPanel } from './AutoSyncPanel'
 import { useState, useEffect, useRef } from 'react'
 
 const _style = typeof document !== "undefined" && (() => { const s = document.createElement("style"); s.textContent = "@keyframes spin { to { transform: rotate(360deg) } }"; document.head.appendChild(s) })()
@@ -862,6 +863,20 @@ export default function ConnectorsPanel() {
       <Microsoft365Card />
       <PersonalOneDriveCard />
       <LocalFilesCard />
+
+      {/* Auto-Sync */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F2', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🔄</div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: NAVY }}>Auto-Sync</div>
+            <div style={{ fontSize: 12, color: '#64748B' }}>Watch folders and automatically index new or changed files</div>
+          </div>
+        </div>
+        <div style={{ padding: 20 }}>
+          <AutoSyncPanel />
+        </div>
+      </div>
 
       {/* Confluence coming soon */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px dashed #E2E8F2', padding: 20, opacity: 0.6, display: 'flex', alignItems: 'center', gap: 12 }}>

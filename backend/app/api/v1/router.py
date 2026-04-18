@@ -4,6 +4,8 @@ API v1 Router — aggregates all versioned endpoints.
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    autosync_api,
+    attachment_query,
     registry_api,
     health, auth, query, ingest, analytics,
     connectors, m365, onedrive_personal, localfs, tenants, widget,
@@ -27,4 +29,7 @@ router.include_router(connectors.router,          prefix="/api/connectors", tags
 router.include_router(m365.router,                prefix="/api/connectors", tags=["Microsoft 365"])
 router.include_router(onedrive_personal.router,   prefix="/api/connectors", tags=["OneDrive Personal"])
 router.include_router(localfs.router,                                        tags=["Local FS"])
+router.include_router(attachment_query.router)
 router.include_router(registry_api.router,                                    tags=["Registry"])
+
+router.include_router(autosync_api.router)

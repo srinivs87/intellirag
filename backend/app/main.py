@@ -14,7 +14,6 @@ from app.core.vector_store import init_vector_store
 from app.core.exceptions import IntelliRAGException, intellirag_exception_handler
 from app.api.v1.router import router as api_router
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -22,7 +21,6 @@ logging.basicConfig(
 logger = logging.getLogger("intellirag")
 
 
-# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle handler."""
@@ -30,12 +28,28 @@ async def lifespan(app: FastAPI):
     await init_db()
     await migrate_analytics()
     await init_vector_store()
+
+    # ── Auto-sync: init tables then start scheduler ───────────────────────────
+    try:
+        from app.services.autosync_service import ensure_autosync_tables, start_autosync
+        await ensure_autosync_tables()
+        start_autosync()
+        logger.info("Auto-sync scheduler started")
+    except Exception as e:
+        logger.warning(f"Auto-sync failed to start: {e}")
+
     logger.info("IntelliRAG is ready.")
     yield
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    try:
+        from app.services.autosync_service import stop_autosync
+        stop_autosync()
+    except Exception:
+        pass
     logger.info("IntelliRAG shutting down.")
 
 
-# ── Application ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title="IntelliRAG API",
     description="On-premise RAG platform — embed anywhere, zero data leakage",
@@ -46,7 +60,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── Middleware ────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -55,13 +68,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Exception Handlers ────────────────────────────────────────────────────────
 app.add_exception_handler(IntelliRAGException, intellirag_exception_handler)
-
-# ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(api_router)
 
 
 @app.get("/", tags=["Root"])
 async def root():
-    return {"product": "IntelliRAG", "version": "2.0.0", "status": "running", "docs": "/api/docs"}
+    return {
+        "product": "IntelliRAG",
+        "version": "2.0.0",
+        "status": "running",
+        "docs": "/api/docs",
+    }

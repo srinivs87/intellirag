@@ -4,37 +4,55 @@ import { SourceKey } from '@/types/connector'
 
 interface SourcePillsProps {
   availableSources: SourceKey[]
-  activeSources: SourceKey[]
-  onToggle: (source: SourceKey) => void
+  activeSource: SourceKey
+  onSelect: (source: SourceKey) => void
 }
 
-export function SourcePills({ availableSources, activeSources, onToggle }: SourcePillsProps) {
+const SOURCE_ICONS: Record<string, string> = {
+  uploaded:   '📁',
+  gdrive:     '📂',
+  localfs:    '💻',
+  teams:      '💬',
+  sharepoint: '🔷',
+  onedrive:   '☁️',
+}
+
+export function SourcePills({ availableSources, activeSource, onSelect }: SourcePillsProps) {
   return (
-    <div className="flex gap-1.5 flex-wrap items-center">
-      <span className="text-xs text-white/40 shrink-0">Search in:</span>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs text-slate-400 font-medium mr-1">Source:</span>
       {availableSources.map((key) => {
         const cfg = SOURCE_CONFIG[key]
         if (!cfg) return null
-        const active = activeSources.includes(key)
+        const active = activeSource === key
         return (
           <button
             key={key}
-            onClick={() => onToggle(key)}
-            className={`
-              inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold
-              transition-all duration-150 border cursor-pointer
-              ${active
-                ? 'bg-white/15 border-white/30 text-white'
-                : 'bg-transparent border-white/10 text-white/30 hover:border-white/20 hover:text-white/50'
-              }
-            `}
+            onClick={() => onSelect(key)}
+            className={[
+              'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold',
+              'transition-all duration-150 cursor-pointer border',
+              active
+                ? 'shadow-sm'
+                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700',
+            ].join(' ')}
+            style={active ? {
+              background: cfg.bg,
+              borderColor: cfg.border,
+              color: cfg.color,
+            } : {}}
           >
-            {active && <span className="text-emerald-400 text-[9px]">✓</span>}
+            <span>{SOURCE_ICONS[key] || '📄'}</span>
             {cfg.label}
+            {active && (
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: cfg.color }}
+              />
+            )}
           </button>
         )
       })}
-      <span className="text-xs text-white/30 ml-1">{activeSources.length} selected</span>
     </div>
   )
 }
