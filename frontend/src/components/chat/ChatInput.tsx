@@ -1,6 +1,7 @@
 'use client'
 import { useRef, KeyboardEvent } from 'react'
 import { NAVY, ORANGE } from '@/lib/constants'
+import { VoiceInputButton } from './VoiceInputButton'
 
 interface ChatInputProps {
   value: string
@@ -14,10 +15,7 @@ export function ChatInput({ value, onChange, onSend, loading, placeholder }: Cha
   const ref = useRef<HTMLTextAreaElement>(null)
 
   function handleKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      onSend()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
   }
 
   return (
@@ -33,6 +31,7 @@ export function ChatInput({ value, onChange, onSend, loading, placeholder }: Cha
           className="flex-1 resize-none border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-[#060B4E]/20 focus:border-[#060B4E] max-h-24 font-[inherit] leading-relaxed"
           style={{ color: NAVY }}
         />
+        <VoiceInputButton onTranscript={onChange} disabled={loading} />
         <button
           onClick={onSend}
           disabled={loading || !value.trim()}

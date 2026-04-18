@@ -17,6 +17,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
   isReady: false,
 
   loadFromStorage: () => {
+    if (typeof window === 'undefined') {
+      set({ isReady: true })
+      return
+    }
     try {
       const stored = localStorage.getItem(AUTH_KEY)
       if (stored) {
@@ -31,12 +35,16 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   setAuth: (user, token) => {
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ user, token }))
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(AUTH_KEY, JSON.stringify({ user, token }))
+    }
     set({ user, token })
   },
 
   clearAuth: () => {
-    localStorage.removeItem(AUTH_KEY)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(AUTH_KEY)
+    }
     set({ user: null, token: null })
   },
 }))
